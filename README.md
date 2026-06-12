@@ -19,6 +19,7 @@ The current version was evaluated and integrated into the [FlexGripPlus](https:/
 
 * [Features](#-features)
 * [Supported Functions](#-supported-functions)
+* [Golden Model & LUT Generation](#-golden-model--lut-generation)
 * [Validation & Synthesis](#-validation--synthesis)
 * [Getting Started](#-getting-started)
 * [Integration](#-integration)
@@ -50,6 +51,80 @@ The SFU currently implements the following mathematical operations:
 | `√x`      | Square root            |
 | `1/√x`    | Reciprocal square root |
 | `2^x`     | Power of two           |
+
+---
+
+## 🧮 Golden Model & LUT Generation
+
+The Octave wrapper is a bit-oriented reference for the hardware datapath, not a high-precision math library. It reuses shared helpers from `Golden-model/` and converts an IEEE-754 hex input into the same range-reduced and LUT-driven approximation path used by the SFU.
+
+```text
+IEEE-754 hex input
+    │
+    ├─ hex / binary parsing
+    ▼
+range reduction and function remap
+    │
+    ├─ exp2: exponent/fraction transform
+    ├─ sin/cos: quadrant reduction
+    └─ sqrt/rsqrt/log2: LUT variant selection
+    ▼
+loadLUTs(func)
+    │
+    ├─ coeff(): C0/C1/C2 coefficients
+    ├─ coeffbin(): binary fixed-point strings
+    └─ getLUT(): common-bit compression for LUT buses
+    ▼
+F = C0 + C1*x + C2*x^2
+    ▼
+exponent/sign correction
+    ▼
+IEEE-754 hex result
+```
+
+Run a single evaluation from the migrated Octave directory:
+
+```sh
+cd Octave
+octave --no-gui --no-window-system --quiet run_sfu_golden_model.m C23A36C1 10
+```
+
+Generate LUT matrices in Octave with `loadLUTs(func)`. The function returns in-memory bit matrices; it does not rewrite the VHDL LUT files.
+
+```sh
+cd Octave
+octave --no-gui --no-window-system --quiet --eval \
+  "[LUTC0,LUTC1,LUTC2,m]=loadLUTs(9); \
+   printf('m=%d rows=%d widths=%d/%d/%d\n', m, rows(LUTC0), columns(LUTC0), columns(LUTC1), columns(LUTC2)); \
+   printf('C0[1]=%s\n', LUTC0(1,:));"
+```
+
+Function selectors are `1=1/x`, `2=sqrt`, `4=1/sqrt`, `6=2^x`, `7=log2`, `9=sin`, and `10=cos`. Selectors `3`, `5`, and `8` are internal LUT variants chosen by the model.
+
+To write complete LUT tables to files, use:
+
+```sh
+cd Octave
+octave --no-gui --no-window-system --quiet run_generate_lut_tables.m generated_luts
+```
+
+Pass selector numbers to generate only specific SFU tables:
+
+```sh
+octave --no-gui --no-window-system --quiet run_generate_lut_tables.m generated_luts 1 2 9 10
+```
+
+Each selector directory contains `LUTC0.txt`, `LUTC1.txt`, `LUTC2.txt`, and `metadata.txt`. The generated text rows are complete hardware bus values: 29 bits for C0, 20 bits for C1, and 14 bits for C2.
+
+The `lut/` directory contains a standalone C implementation of coefficient generation, fixed-point encoding, and LUT file emission:
+
+```sh
+cd lut
+make test
+./build/coeffgen generated_coeffs
+```
+
+The C generator mirrors the `Octave/generated_luts` directory layout and binary row format: one directory per function, such as `generated_coeffs/06_exp/`, containing `LUTC0.txt`, `LUTC1.txt`, `LUTC2.txt`, and `metadata.txt`.
 
 ---
 
