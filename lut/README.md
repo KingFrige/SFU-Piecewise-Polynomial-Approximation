@@ -30,6 +30,7 @@ The default C variant is `remez-compat`: Remez-generated coefficients plus the k
 ```sh
 ./build/coeffgen --variant=remez build/remez
 ./build/coeffgen --variant=pdf-quant build/pdf-quant
+./build/coeffgen --variant=pdf-hw-search build/pdf-hw-search
 ```
 
 Generate one function by selector or name:
@@ -81,7 +82,7 @@ Generate and compare all supported C variants:
 make compare-variants
 ```
 
-This writes `build/remez-compat`, `build/remez`, and `build/pdf-quant`. If MPFR/GMP development libraries are available, it also builds `build/coeffgen_mpfr` and writes `build/mpfr-remez`.
+This writes `build/remez-compat`, `build/remez`, `build/pdf-quant`, and `build/pdf-hw-search`. If MPFR/GMP development libraries are available, it also builds `build/coeffgen_mpfr` and writes `build/mpfr-remez`.
 
 Run the complete LUT generation and comparison flow:
 
@@ -90,6 +91,11 @@ make compare
 ```
 
 This generates `build/octave_generated_luts` plus every supported C variant, checks `build/remez-compat` against the Octave reference, then prints the variant mismatch and approximation-error report.
+The variant report is passed through `compare_summary.py`, which appends a terminal table and recommendation summary. You can also reuse it with saved output:
+
+```sh
+make compare-generated-variants | python3 compare_summary.py --summary-only
+```
 
 ## Accuracy and Compatibility
 
@@ -100,12 +106,14 @@ Available variants:
 - `remez-compat`: default output. Uses the C Remez path plus the known Octave-reference C0 boundary-row compatibility adjustments so `make compare-octave` remains bit-exact.
 - `remez`: raw long-double Remez output with no reference-compatibility adjustments.
 - `pdf-quant`: applies PDF 5.2.2 compensated quantization: round `C1`, compensate/round `C2`, recompute/round `C0`.
+- `pdf-hw-search`: starts from `pdf-quant`, then searches nearby fixed-point `C1`, `C2`, and `C0` values using a hardware-scaled LUT datapath error metric.
 - `mpfr-remez`: optional MPFR/GMP build of the Remez solve. Build with `make mpfr` and run `./build/coeffgen_mpfr --variant=mpfr-remez <out>`.
 
 The PDF section 5.2 describes the intended method:
 
 - solve a degree-2 minimax approximation per uniform segment;
 - quantize `C1`, compensate `C2`, then recompute/quantize `C0`;
+- validate finite-wordlength candidates with hardware-behavior simulation;
 - store compressed coefficient tables with the bus widths summarized in PDF tables 4 and 5.
 
 The repository reference source is `Golden-model/coeff.m`, which contains static decimal coefficients rather than the original Maple/Mathematica script. Most C-recomputed coefficients encode to the same fixed-point rows directly. A small set of `C0` values lies exactly on truncation boundaries after conversion to the current hardware bit format, so the `remez-compat` variant applies documented one-LSB compatibility adjustments for those rows before writing files. This keeps generated LUTs bit-exact with the checked-in Octave behavior while keeping the default generation path independent of Maple and Octave.
@@ -119,12 +127,20 @@ Current `make compare-variants` results on this environment:
 
 ```text
 variant=remez-compat fixed_error max_abs=5.8738995011e-07 rms=8.9929021242e-08
+                     hw_error    max_abs=5.8860061549e-07 rms=8.8505045687e-08
 variant=remez        fixed_error max_abs=5.8738995011e-07 rms=8.9958407443e-08
+                     hw_error    max_abs=5.8860061549e-07 rms=8.8534126575e-08
 variant=pdf-quant    fixed_error max_abs=9.3931527781e-08 rms=1.5263449434e-08
+                     hw_error    max_abs=9.2330133774e-08 rms=1.5106709956e-08
+variant=pdf-hw-search fixed_error max_abs=7.6449044950e-08 rms=1.4940855966e-08
+                      hw_error    max_abs=7.8438643986e-08 rms=1.4744277339e-08
 variant=mpfr-remez   fixed_error max_abs=5.8738995011e-07 rms=8.9958407443e-08
+                     hw_error    max_abs=5.8860061549e-07 rms=8.8534126575e-08
 ```
 
-`source_error` in the report measures the unencoded coefficient polynomial. `fixed_error` measures coefficients after the LUT fixed-point truncation used by the current writer. In this sample, `remez`/`mpfr-remez` slightly improve unencoded RMS error, but the reference-compatible fixed-point table remains marginally better after encoding. `pdf-quant` has lower max fixed-point error but a higher RMS error and many bit differences, so it is an exploration output, not a replacement for the Octave reference.
+`source_error` in the report measures the unencoded coefficient polynomial. `fixed_error` measures coefficients after the LUT fixed-point truncation used by the current writer. In this sample, `pdf-quant` lowers max fixed-point error, while `pdf-hw-search` further improves the hardware-scaled metric. Both have many bit differences from the Octave reference, so they are exploration outputs, not replacements for `remez-compat`.
+
+`hw_error` in the report measures the LUT-level fixed-point datapath approximation: coefficients are truncated to their configured table precision, `x_l` is sampled on the 23-bit mantissa grid, and the quadratic term uses the same truncated square scale as the Golden-model evaluation. This is closer to the paper's hardware simulation step than `fixed_error`, but it is still not a full end-to-end IEEE-754 ULP proof.
 
 ## Implementation Notes
 

@@ -3,6 +3,7 @@
 #include <errno.h>
 #include <math.h>
 #include <stdint.h>
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -50,6 +51,7 @@ static const variant_desc_t k_variants[] = {
     {COEFFGEN_VARIANT_REMEZ_COMPAT, "remez-compat"},
     {COEFFGEN_VARIANT_REMEZ, "remez"},
     {COEFFGEN_VARIANT_PDF_QUANT, "pdf-quant"},
+    {COEFFGEN_VARIANT_PDF_HW_SEARCH, "pdf-hw-search"},
     {COEFFGEN_VARIANT_MPFR_REMEZ, "mpfr-remez"},
 };
 
@@ -524,6 +526,88 @@ static long double round_to_frac(long double value, int frac_bits)
     return roundl(value * scale) / scale;
 }
 
+static int64_t round_to_fixed_int(long double value, int frac_bits)
+{
+    return (int64_t)llroundl(value * ldexpl(1.0L, frac_bits));
+}
+
+static int64_t trunc_to_fixed_int(long double value, int frac_bits)
+{
+    long double scaled = value * ldexpl(1.0L, frac_bits);
+
+    return value < 0.0L ? (int64_t)ceill(scaled) : (int64_t)floorl(scaled);
+}
+
+static long double fixed_int_to_value(int64_t value, int frac_bits)
+{
+    return ldexpl((long double)value, -frac_bits);
+}
+
+static long double eval_hw_scaled_fixed(const coeffgen_function_t *fn,
+                                        int64_t c0,
+                                        int64_t c1,
+                                        int64_t c2,
+                                        uint64_t tail)
+{
+    uint64_t square_trunc = (tail * tail) >> 19;
+    long double x = ldexpl((long double)tail, -23);
+    long double x2_hw = ldexpl((long double)square_trunc, -27);
+
+    return fixed_int_to_value(c0, fn->t) +
+           fixed_int_to_value(c1, fn->p) * x +
+           fixed_int_to_value(c2, fn->q) * x2_hw;
+}
+
+static void accumulate_error_stats(coeffgen_error_stats_t *stats, long double error)
+{
+    if (error > stats->max_abs_error) {
+        stats->max_abs_error = error;
+    }
+    stats->rms_error += error * error;
+    stats->samples++;
+}
+
+int coeffgen_evaluate_segment_hw_error(const coeffgen_function_t *fn,
+                                       int segment,
+                                       const coeffgen_result_t *coeffs,
+                                       int samples_per_segment,
+                                       coeffgen_error_stats_t *stats)
+{
+    int sample;
+    uint64_t tail_max;
+    int64_t c0;
+    int64_t c1;
+    int64_t c2;
+
+    if (to_desc(fn) == NULL || coeffs == NULL || stats == NULL ||
+        samples_per_segment <= 0 ||
+        segment < 0 || segment >= coeffgen_segment_count(fn)) {
+        errno = EINVAL;
+        return -1;
+    }
+
+    memset(stats, 0, sizeof(*stats));
+    tail_max = ((uint64_t)1 << (23 - fn->m)) - 1;
+    c0 = trunc_to_fixed_int(coeffs->c0, fn->t);
+    c1 = trunc_to_fixed_int(coeffs->c1, fn->p);
+    c2 = trunc_to_fixed_int(coeffs->c2, fn->q);
+
+    for (sample = 0; sample <= samples_per_segment; sample++) {
+        uint64_t tail = (tail_max * (uint64_t)sample) / (uint64_t)samples_per_segment;
+        long double local_x = ldexpl((long double)tail, -23);
+        long double target = coeffgen_eval_target(fn, segment, local_x);
+        long double approx = eval_hw_scaled_fixed(fn, c0, c1, c2, tail);
+
+        accumulate_error_stats(stats, fabsl(target - approx));
+    }
+
+    if (stats->samples > 0) {
+        stats->rms_error = sqrtl(stats->rms_error / (long double)stats->samples);
+    }
+
+    return 0;
+}
+
 static int fixed_c1_c2_minimax_c0(const coeffgen_function_t *fn,
                                   int segment,
                                   long double c1,
@@ -633,6 +717,141 @@ static int apply_pdf_quantization(const coeffgen_function_t *fn,
     return 0;
 }
 
+static int evaluate_fixed_candidate(const coeffgen_function_t *fn,
+                                    int segment,
+                                    int64_t c0,
+                                    int64_t c1,
+                                    int64_t c2,
+                                    int samples_per_segment,
+                                    coeffgen_error_stats_t *stats)
+{
+    int sample;
+    uint64_t tail_max;
+
+    if (stats == NULL || samples_per_segment <= 0) {
+        errno = EINVAL;
+        return -1;
+    }
+
+    memset(stats, 0, sizeof(*stats));
+    tail_max = ((uint64_t)1 << (23 - fn->m)) - 1;
+
+    for (sample = 0; sample <= samples_per_segment; sample++) {
+        uint64_t tail = (tail_max * (uint64_t)sample) / (uint64_t)samples_per_segment;
+        long double local_x = ldexpl((long double)tail, -23);
+        long double target = coeffgen_eval_target(fn, segment, local_x);
+        long double approx = eval_hw_scaled_fixed(fn, c0, c1, c2, tail);
+
+        accumulate_error_stats(stats, fabsl(target - approx));
+    }
+
+    if (stats->samples > 0) {
+        stats->rms_error = sqrtl(stats->rms_error / (long double)stats->samples);
+    }
+
+    return 0;
+}
+
+static int stats_better(const coeffgen_error_stats_t *candidate,
+                        const coeffgen_error_stats_t *best)
+{
+    const long double eps = 1.0e-24L;
+
+    if (candidate->max_abs_error + eps < best->max_abs_error) {
+        return 1;
+    }
+    if (fabsl(candidate->max_abs_error - best->max_abs_error) <= eps &&
+        candidate->rms_error + eps < best->rms_error) {
+        return 1;
+    }
+    return 0;
+}
+
+static int apply_pdf_hw_search(const coeffgen_function_t *fn,
+                               int segment,
+                               const coeffgen_result_t *source,
+                               coeffgen_result_t *result)
+{
+    enum {
+        C1_RADIUS = 2,
+        C2_RADIUS = 2,
+        C0_RADIUS = 4,
+        SEARCH_SAMPLES = 512
+    };
+    coeffgen_result_t pdf;
+    coeffgen_error_stats_t best_stats = {0, 0.0L, 0.0L};
+    int64_t pdf_c1;
+    int64_t pdf_c2;
+    int64_t best_c0 = 0;
+    int64_t best_c1 = 0;
+    int64_t best_c2 = 0;
+    int d1;
+    int initialized = 0;
+
+    if (source == NULL || result == NULL) {
+        errno = EINVAL;
+        return -1;
+    }
+
+    if (apply_pdf_quantization(fn, segment, source, &pdf) != 0) {
+        return -1;
+    }
+
+    pdf_c1 = round_to_fixed_int(pdf.c1, fn->p);
+    pdf_c2 = round_to_fixed_int(pdf.c2, fn->q);
+
+    for (d1 = -C1_RADIUS; d1 <= C1_RADIUS; d1++) {
+        int d2;
+        int64_t c1 = pdf_c1 + d1;
+        for (d2 = -C2_RADIUS; d2 <= C2_RADIUS; d2++) {
+            int d0;
+            int64_t c2 = pdf_c2 + d2;
+            long double c0_cont;
+            long double error;
+            int64_t c0_center;
+
+            if (fixed_c1_c2_minimax_c0(fn,
+                                       segment,
+                                       fixed_int_to_value(c1, fn->p),
+                                       fixed_int_to_value(c2, fn->q),
+                                       &c0_cont,
+                                       &error) != 0) {
+                return -1;
+            }
+
+            c0_center = round_to_fixed_int(c0_cont, fn->t);
+            for (d0 = -C0_RADIUS; d0 <= C0_RADIUS; d0++) {
+                int64_t c0 = c0_center + d0;
+                coeffgen_error_stats_t candidate;
+
+                if (evaluate_fixed_candidate(fn, segment, c0, c1, c2, SEARCH_SAMPLES, &candidate) != 0) {
+                    return -1;
+                }
+
+                if (!initialized || stats_better(&candidate, &best_stats)) {
+                    best_stats = candidate;
+                    best_c0 = c0;
+                    best_c1 = c1;
+                    best_c2 = c2;
+                    initialized = 1;
+                }
+            }
+        }
+    }
+
+    if (!initialized) {
+        errno = EINVAL;
+        return -1;
+    }
+
+    *result = pdf;
+    result->c0 = fixed_int_to_value(best_c0, fn->t);
+    result->c1 = fixed_int_to_value(best_c1, fn->p);
+    result->c2 = fixed_int_to_value(best_c2, fn->q);
+    result->error = best_stats.max_abs_error;
+    return 0;
+}
+
 static void apply_remez_compat_c0_adjustments(const coeffgen_function_t *fn,
                                               int segment,
                                               coeffgen_result_t *row)
@@ -697,6 +916,11 @@ int coeffgen_generate_segment_variant(const coeffgen_function_t *fn,
             return -1;
         }
         return apply_pdf_quantization(fn, segment, &remez, result);
+    case COEFFGEN_VARIANT_PDF_HW_SEARCH:
+        if (coeffgen_generate_segment(fn, segment, &remez) != 0) {
+            return -1;
+        }
+        return apply_pdf_hw_search(fn, segment, &remez, result);
     case COEFFGEN_VARIANT_MPFR_REMEZ:
 #ifdef COEFFGEN_HAVE_MPFR
         return coeffgen_generate_segment_mpfr(fn, segment, result);

@@ -88,8 +88,8 @@ static int test_variant_metadata(void)
 {
     coeffgen_variant_t variant;
 
-    if (coeffgen_variant_count() != 4) {
-        fprintf(stderr, "expected 4 variants, got %zu\n", coeffgen_variant_count());
+    if (coeffgen_variant_count() != 5) {
+        fprintf(stderr, "expected 5 variants, got %zu\n", coeffgen_variant_count());
         return 1;
     }
 
@@ -104,6 +104,13 @@ static int test_variant_metadata(void)
         variant != COEFFGEN_VARIANT_PDF_QUANT ||
         !coeffgen_variant_available(variant)) {
         fprintf(stderr, "failed to parse pdf-quant variant\n");
+        return 1;
+    }
+
+    if (coeffgen_parse_variant("pdf-hw-search", &variant) != 0 ||
+        variant != COEFFGEN_VARIANT_PDF_HW_SEARCH ||
+        !coeffgen_variant_available(variant)) {
+        fprintf(stderr, "failed to parse pdf-hw-search variant\n");
         return 1;
     }
 
@@ -134,6 +141,34 @@ static int test_pdf_quant_exp_example(void)
                 r.c0,
                 r.c1,
                 r.c2);
+        return 1;
+    }
+
+    return 0;
+}
+
+static int test_pdf_hw_search_exp_example(void)
+{
+    const coeffgen_function_t *fn = coeffgen_find_function("exp");
+    coeffgen_result_t pdf;
+    coeffgen_result_t search;
+    coeffgen_error_stats_t pdf_stats;
+    coeffgen_error_stats_t search_stats;
+
+    if (fn == NULL ||
+        coeffgen_generate_segment_variant(fn, 0, COEFFGEN_VARIANT_PDF_QUANT, &pdf) != 0 ||
+        coeffgen_generate_segment_variant(fn, 0, COEFFGEN_VARIANT_PDF_HW_SEARCH, &search) != 0 ||
+        coeffgen_evaluate_segment_hw_error(fn, 0, &pdf, 256, &pdf_stats) != 0 ||
+        coeffgen_evaluate_segment_hw_error(fn, 0, &search, 256, &search_stats) != 0) {
+        fprintf(stderr, "failed to compare PDF hardware search exp example\n");
+        return 1;
+    }
+
+    if (search_stats.max_abs_error > pdf_stats.max_abs_error + 1.0e-18L) {
+        fprintf(stderr,
+                "pdf-hw-search regressed exp hardware error: pdf=%.18Le search=%.18Le\n",
+                pdf_stats.max_abs_error,
+                search_stats.max_abs_error);
         return 1;
     }
 
@@ -190,6 +225,9 @@ int main(void)
     }
 
     if (test_pdf_quant_exp_example() != 0) {
+        return 1;
+    }
+    if (test_pdf_hw_search_exp_example() != 0) {
         return 1;
     }
 

@@ -20,10 +20,17 @@ typedef struct {
     int iterations;
 } coeffgen_result_t;
 
+typedef struct {
+    long samples;
+    long double max_abs_error;
+    long double rms_error;
+} coeffgen_error_stats_t;
+
 typedef enum {
     COEFFGEN_VARIANT_REMEZ_COMPAT = 0,
     COEFFGEN_VARIANT_REMEZ,
     COEFFGEN_VARIANT_PDF_QUANT,
+    COEFFGEN_VARIANT_PDF_HW_SEARCH,
     COEFFGEN_VARIANT_MPFR_REMEZ
 } coeffgen_variant_t;
 
@@ -53,5 +60,10 @@ long double coeffgen_eval_target(const coeffgen_function_t *fn,
                                  long double local_x);
 long double coeffgen_eval_polynomial(const coeffgen_result_t *result,
                                      long double local_x);
+int coeffgen_evaluate_segment_hw_error(const coeffgen_function_t *fn,
+                                       int segment,
+                                       const coeffgen_result_t *coeffs,
+                                       int samples_per_segment,
+                                       coeffgen_error_stats_t *stats);
 
 #endif

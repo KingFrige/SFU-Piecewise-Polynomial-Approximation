@@ -1,4 +1,5 @@
 CC ?= gcc
+PYTHON ?= python3
 CFLAGS ?= -std=c11 -O2 -Wall -Wextra -Wpedantic
 LDFLAGS ?=
 LDLIBS ?= -lm
@@ -12,7 +13,9 @@ OCTAVE_LUT_DIR ?= $(BUILD_DIR)/octave_generated_luts
 REMEZ_COMPAT_LUT_DIR ?= $(BUILD_DIR)/remez-compat
 REMEZ_LUT_DIR ?= $(BUILD_DIR)/remez
 PDF_QUANT_LUT_DIR ?= $(BUILD_DIR)/pdf-quant
+PDF_HW_SEARCH_LUT_DIR ?= $(BUILD_DIR)/pdf-hw-search
 MPFR_REMEZ_LUT_DIR ?= $(BUILD_DIR)/mpfr-remez
+COMPARE_SUMMARY ?= ./compare_summary.py
 
 .PHONY: all clean test smoke-files generate-octave compare-octave mpfr generate-variants compare-generated-variants compare-variants compare
 
@@ -99,10 +102,11 @@ mpfr:
 endif
 
 generate-variants: all
-	rm -rf $(REMEZ_COMPAT_LUT_DIR) $(REMEZ_LUT_DIR) $(PDF_QUANT_LUT_DIR) $(MPFR_REMEZ_LUT_DIR)
+	rm -rf $(REMEZ_COMPAT_LUT_DIR) $(REMEZ_LUT_DIR) $(PDF_QUANT_LUT_DIR) $(PDF_HW_SEARCH_LUT_DIR) $(MPFR_REMEZ_LUT_DIR)
 	$(BUILD_DIR)/coeffgen --variant=remez-compat $(REMEZ_COMPAT_LUT_DIR)
 	$(BUILD_DIR)/coeffgen --variant=remez $(REMEZ_LUT_DIR)
 	$(BUILD_DIR)/coeffgen --variant=pdf-quant $(PDF_QUANT_LUT_DIR)
+	$(BUILD_DIR)/coeffgen --variant=pdf-hw-search $(PDF_HW_SEARCH_LUT_DIR)
 ifeq ($(HAVE_MPFR),yes)
 	$(MAKE) mpfr
 	$(BUILD_DIR)/coeffgen_mpfr --variant=mpfr-remez $(MPFR_REMEZ_LUT_DIR)
@@ -112,16 +116,18 @@ endif
 
 compare-generated-variants: all
 ifeq ($(HAVE_MPFR),yes)
-	$(BUILD_DIR)/compare_variants_mpfr $(REMEZ_COMPAT_LUT_DIR) \
+	$(PYTHON) $(COMPARE_SUMMARY) -- $(BUILD_DIR)/compare_variants_mpfr $(REMEZ_COMPAT_LUT_DIR) \
 		remez-compat $(REMEZ_COMPAT_LUT_DIR) \
 		remez $(REMEZ_LUT_DIR) \
 		pdf-quant $(PDF_QUANT_LUT_DIR) \
+		pdf-hw-search $(PDF_HW_SEARCH_LUT_DIR) \
 		mpfr-remez $(MPFR_REMEZ_LUT_DIR)
 else
-	$(BUILD_DIR)/compare_variants $(REMEZ_COMPAT_LUT_DIR) \
+	$(PYTHON) $(COMPARE_SUMMARY) -- $(BUILD_DIR)/compare_variants $(REMEZ_COMPAT_LUT_DIR) \
 		remez-compat $(REMEZ_COMPAT_LUT_DIR) \
 		remez $(REMEZ_LUT_DIR) \
-		pdf-quant $(PDF_QUANT_LUT_DIR)
+		pdf-quant $(PDF_QUANT_LUT_DIR) \
+		pdf-hw-search $(PDF_HW_SEARCH_LUT_DIR)
 endif
 
 compare-variants: generate-variants

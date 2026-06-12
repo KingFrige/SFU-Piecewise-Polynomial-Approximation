@@ -23,6 +23,7 @@ typedef struct {
 typedef struct {
     error_stats_t source;
     error_stats_t fixed;
+    error_stats_t hardware;
 } variant_error_stats_t;
 
 static int read_line(FILE *fp, char *buf, size_t size)
@@ -180,6 +181,7 @@ static void quantize_coefficients(const coeffgen_function_t *fn,
 static int compute_error_stats(coeffgen_variant_t variant, variant_error_stats_t *stats)
 {
     const int samples_per_segment = 16;
+    const int hardware_samples_per_segment = 256;
     size_t i;
 
     memset(stats, 0, sizeof(*stats));
@@ -192,12 +194,27 @@ static int compute_error_stats(coeffgen_variant_t variant, variant_error_stats_t
         for (segment = 0; segment < rows; segment++) {
             coeffgen_result_t coeffs;
             coeffgen_result_t fixed_coeffs;
+            coeffgen_error_stats_t hw_stats;
             int sample;
 
             if (coeffgen_generate_segment_variant(fn, segment, variant, &coeffs) != 0) {
                 return 1;
             }
             quantize_coefficients(fn, &coeffs, &fixed_coeffs);
+            if (coeffgen_evaluate_segment_hw_error(fn,
+                                                  segment,
+                                                  &coeffs,
+                                                  hardware_samples_per_segment,
+                                                  &hw_stats) != 0) {
+                return 1;
+            }
+
+            if (hw_stats.max_abs_error > stats->hardware.max_abs_error) {
+                stats->hardware.max_abs_error = hw_stats.max_abs_error;
+            }
+            stats->hardware.rms_error_accum +=
+                hw_stats.rms_error * hw_stats.rms_error * (long double)hw_stats.samples;
+            stats->hardware.samples += hw_stats.samples;
 
             for (sample = 0; sample <= samples_per_segment; sample++) {
                 long double h = ldexpl(1.0L, -fn->m);
@@ -257,6 +274,10 @@ static int report_variant(const char *reference_root,
            error_stats.fixed.samples,
            error_stats.fixed.max_abs_error,
            sqrtl(error_stats.fixed.rms_error_accum / (long double)error_stats.fixed.samples));
+    printf("  hw_error     samples=%ld max_abs=%.10Le rms=%.10Le\n",
+           error_stats.hardware.samples,
+           error_stats.hardware.max_abs_error,
+           sqrtl(error_stats.hardware.rms_error_accum / (long double)error_stats.hardware.samples));
 
     return 0;
 }

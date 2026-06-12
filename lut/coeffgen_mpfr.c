@@ -19,7 +19,6 @@ static int mpfr_eval_target(const coeffgen_function_t *fn,
                             mpfr_t out)
 {
     mpfr_t z;
-    long double z_ld;
 
     mpfr_init2(z, MPFR_PREC_BITS);
     mpfr_set_ld(z, ldexpl((long double)segment, -fn->m), MPFR_RNDN);
@@ -75,12 +74,10 @@ static int mpfr_eval_target(const coeffgen_function_t *fn,
         }
         break;
     case 9:
-        z_ld = mpfr_get_ld(z, MPFR_RNDN);
-        mpfr_set_ld(out, sinl(z_ld), MPFR_RNDN);
+        mpfr_sin(out, z, MPFR_RNDN);
         break;
     case 10:
-        z_ld = mpfr_get_ld(z, MPFR_RNDN);
-        mpfr_set_ld(out, cosl(z_ld), MPFR_RNDN);
+        mpfr_cos(out, z, MPFR_RNDN);
         break;
     default:
         mpfr_clear(z);

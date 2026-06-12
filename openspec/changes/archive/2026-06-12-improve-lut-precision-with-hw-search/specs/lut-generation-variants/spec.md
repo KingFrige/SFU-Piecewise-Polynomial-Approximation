@@ -1,9 +1,4 @@
-# lut-generation-variants Specification
-
-## Purpose
-Define the selectable LUT coefficient-generation variants, optional MPFR-backed generation, comparison reporting, and documentation expected for SFU LUT exploration.
-
-## Requirements
+## MODIFIED Requirements
 
 ### Requirement: Selectable LUT Generation Variants
 The LUT generator SHALL support multiple coefficient-generation variants without changing the default Octave-reference-compatible behavior.
@@ -23,17 +18,6 @@ The LUT generator SHALL support multiple coefficient-generation variants without
 #### Scenario: Unsupported variant is rejected
 - **WHEN** the user passes an unknown `--variant` value
 - **THEN** the generator exits with a non-zero status and prints the supported variant names
-
-### Requirement: Optional MPFR Variant
-The build SHALL provide an MPFR-backed Remez variant when MPFR/GMP are available, while keeping the default build independent of MPFR/GMP.
-
-#### Scenario: MPFR target available
-- **WHEN** MPFR/GMP development libraries are available and the user builds the MPFR target
-- **THEN** the generator supports `--variant=mpfr-remez`
-
-#### Scenario: Default build without MPFR
-- **WHEN** MPFR/GMP are unavailable
-- **THEN** `make test` still builds and runs the C-only non-MPFR tests
 
 ### Requirement: Variant Accuracy Comparison
 The repository SHALL provide a task that generates all supported variants and compares them against the default compatibility reference.
@@ -55,10 +39,3 @@ The repository SHALL provide a task that generates all supported variants and co
 #### Scenario: Compatibility comparison remains exact
 - **WHEN** the comparison task evaluates the `remez-compat` variant
 - **THEN** all generated `LUTC0.txt`, `LUTC1.txt`, and `LUTC2.txt` rows match the Octave reference
-
-### Requirement: Variant Documentation
-The LUT documentation SHALL explain each variant, its dependencies, and how to interpret comparison results.
-
-#### Scenario: User reads LUT README
-- **WHEN** the user opens `lut/README.md`
-- **THEN** the document lists the available variants, commands to generate and compare them, and notes that higher mathematical accuracy is not automatically a hardware replacement decision
