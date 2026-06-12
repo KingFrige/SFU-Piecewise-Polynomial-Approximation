@@ -150,9 +150,22 @@ The SFU has been validated in:
 
 ### Prerequisites
 
-* ModelSim-Altera (or compatible simulator)
-* Quartus Prime (for FPGA synthesis)
-* GNU Octave (for golden model comparison)
+Install the tools required for the flow you want to run:
+
+* GNU Make and a C11 compiler such as GCC or Clang for `lut/` and `cmodel/`
+* Python 3 for generated-data and LUT comparison helper scripts
+* GNU Octave for the golden model, LUT generation, and C model comparisons
+* `pkg-config`, MPFR, and GMP development libraries for the optional MPFR LUT generator variant
+* ModelSim-Altera or QuestaSim for HDL simulation
+* Quartus Prime for FPGA synthesis
+
+On Debian/Ubuntu systems, the software dependencies for the Octave, LUT, and C model flows can be installed with:
+
+```sh
+sudo apt-get install build-essential python3 octave pkg-config libmpfr-dev libgmp-dev
+```
+
+The HDL simulator and Quartus Prime are vendor tools and must be installed separately.
 
 ### Synthesis
 
