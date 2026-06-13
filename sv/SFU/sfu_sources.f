@@ -1,0 +1,14 @@
+sfu_pkg.sv
+voter.sv
+squaring.sv
+booth_pp.sv
+csa_4_2.sv
+fused_accum_tree.sv
+sfu_rom.sv
+rro_fp.sv
+rro.sv
+rro_trig.sv
+clz.sv
+sfu_exceptions.sv
+quadratic_interpolator.sv
+sfu.sv
