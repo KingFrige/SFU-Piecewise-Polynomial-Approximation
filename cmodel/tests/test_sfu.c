@@ -23,6 +23,9 @@ static int test_vectors(const sfu_luts_t *luts)
         {"40000000", 7, "3F800000"},
         {"3F490FDB", 9, "3F3504F3"},
         {"C23A36C1", 10, "BF5777FD"},
+        {"3FC90FDB", 9, "3F800000"},
+        {"3FC90FDB", 10, "32800000"},
+        {"7F7FFFFF", 1, "00000001"},
     };
     size_t i;
 

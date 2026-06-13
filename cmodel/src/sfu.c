@@ -381,7 +381,7 @@ static uint32_t double_to_octave_hex32(double value)
 
     exp_bits = exp2 + 127;
     if (exp_bits <= 0) {
-        return (uint32_t)sign << 31;
+        return ((uint32_t)sign << 31) | mant23;
     }
     if (exp_bits >= 255) {
         return ((uint32_t)sign << 31) | 0x7f800000U;
@@ -574,7 +574,7 @@ static uint32_t apply_basic_exceptions(int selector, uint32_t original, uint32_t
         if (exp == 0xffU) {
             return 0xffffffffU;
         }
-        if ((reduced & 0x00ffffffU) == 0) {
+        if ((original & 0x7fffffffU) == 0 && (reduced & 0x00ffffffU) == 0) {
             if (selector == 9) {
                 return result & 0x80000000U;
             }
