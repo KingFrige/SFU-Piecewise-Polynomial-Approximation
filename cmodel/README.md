@@ -16,6 +16,18 @@ The model consumes generated LUT directories with this layout:
 
 The cmodel build and comparison flow requires GNU Make, a C11 compiler, Python 3, and GNU Octave. Octave is used through `../Octave` to generate LUTs and provide the golden comparison oracle.
 
+## Source Layout
+
+The source is split to mirror the SFU hardware structure in `Description/SFU_13/SFU`:
+
+- `src/sfu.c`, `src/sfu.h`: top-level SFU evaluation API and datapath orchestration.
+- `src/sfu_rro.*`: range reduction operations for exp and trigonometric functions.
+- `src/sfu_quadratic_interpolator.*`: ROM lookup segment selection, squaring term, and quadratic accumulation.
+- `src/sfu_reconstruction.*`: selector-specific result reconstruction and Octave-compatible IEEE-754 packing.
+- `src/sfu_exceptions.*`: final selector-specific exception handling.
+- `src/sfu_lut_file.c`: generated LUT parsing plus ROM table allocation and release.
+- `src/sfu_internal.h`, `src/sfu_support.c`: private ROM table types, selector metadata, CLI hex parsing, and shared error formatting.
+
 Build and run deterministic tests:
 
 ```sh

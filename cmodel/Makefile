@@ -12,6 +12,16 @@ RESULT_DIR ?= $(BUILD_DIR)/compare_octave
 TEST_TMP_DIR ?= $(BUILD_DIR)/test_tmp
 DATA_COUNT ?= 16
 
+SFU_SRCS := \
+	src/sfu.c \
+	src/sfu_exceptions.c \
+	src/sfu_lut_file.c \
+	src/sfu_quadratic_interpolator.c \
+	src/sfu_reconstruction.c \
+	src/sfu_rro.c \
+	src/sfu_support.c
+SFU_OBJS := $(patsubst src/%.c,$(BUILD_DIR)/%.o,$(SFU_SRCS))
+
 .PHONY: all clean generate-luts test generate-data compare-octave
 
 all: $(BUILD_DIR)/sfu $(BUILD_DIR)/test_sfu
@@ -19,7 +29,7 @@ all: $(BUILD_DIR)/sfu $(BUILD_DIR)/test_sfu
 $(BUILD_DIR):
 	mkdir -p $@
 
-$(BUILD_DIR)/sfu.o: src/sfu.c src/sfu.h | $(BUILD_DIR)
+$(BUILD_DIR)/%.o: src/%.c src/*.h | $(BUILD_DIR)
 	$(CC) $(CFLAGS) -c $< -o $@
 
 $(BUILD_DIR)/sfu_cli.o: src/sfu_cli.c src/sfu.h | $(BUILD_DIR)
@@ -28,10 +38,10 @@ $(BUILD_DIR)/sfu_cli.o: src/sfu_cli.c src/sfu.h | $(BUILD_DIR)
 $(BUILD_DIR)/test_sfu.o: tests/test_sfu.c src/sfu.h | $(BUILD_DIR)
 	$(CC) $(CFLAGS) -Isrc -c $< -o $@
 
-$(BUILD_DIR)/sfu: $(BUILD_DIR)/sfu.o $(BUILD_DIR)/sfu_cli.o
+$(BUILD_DIR)/sfu: $(SFU_OBJS) $(BUILD_DIR)/sfu_cli.o
 	$(CC) $(LDFLAGS) $^ $(LDLIBS) -o $@
 
-$(BUILD_DIR)/test_sfu: $(BUILD_DIR)/sfu.o $(BUILD_DIR)/test_sfu.o
+$(BUILD_DIR)/test_sfu: $(SFU_OBJS) $(BUILD_DIR)/test_sfu.o
 	$(CC) $(LDFLAGS) $^ $(LDLIBS) -o $@
 
 generate-luts:
